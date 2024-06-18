@@ -1,16 +1,19 @@
 package main
 
 import (
-  "log"
-  "fmt"
-  "net/http"
-  "regexp"
-  "io"
-  "time"
-  "errors"
-  "strings"
-  _ "database/sql"
-  "os"
+	"database/sql"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type GameMode string;
@@ -22,59 +25,125 @@ const (
 )
 
 func main() {
-  //get_all_ranked_beatmap_ids_of_gamemode(standard);
-  init_database();
+  db_path :=  "./data/data.db";
+  create_database(db_path);
+
+  db, err := sql.Open("sqlite3", db_path);
+  if err != nil {
+    log.Fatalln(err);
+  }
+  defer db.Close();
+
+  init_database(db);
+
+  get_all_ranked_beatmap_ids_of_gamemode(standard, db);
+  print_db(db);
 }
 
-func init_database() {
-  if _, err := os.Stat("./data/data.db"); err != nil {
-    fmt.Println("Creating db");
+func insert_beatmap_id(db *sql.DB, id int) {
+  insertMapIDSQL := `INSERT OR REPLACE INTO beatmaps(id) VALUES (?)`
+  statement, err := db.Prepare(insertMapIDSQL);
+  if err != nil {
+    log.Fatalln(err);
+  }
+  _, err = statement.Exec(id);
+  if err != nil {
+    log.Fatalln(err);
+  }
+
+}
+
+func print_db(db *sql.DB) {
+	row, err := db.Query("SELECT * FROM beatmaps")
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer row.Close()
+	for row.Next() {
+		var id int
+		row.Scan(&id)
+		log.Println("Beatmap ID: ", id);
+	}
+}
+
+func create_database(db_path string) {
+  if _, err := os.Stat(db_path); err != nil {
+    fmt.Println("Creating db...");
     os.Mkdir("./data", 0755);
-    os.Create("./data/data.db");
+    file, err := os.Create(db_path);
+    if err != nil {
+      log.Fatal(err);
+    }
+    file.Close();
+    fmt.Println(db_path + " created.");
   } else {
     fmt.Println("db exists");
   }
 }
 
-func get_all_ranked_beatmap_ids_of_gamemode(gm GameMode) {
+func init_database(db *sql.DB) {
+  const create string = `
+  CREATE TABLE IF NOT EXISTS beatmaps (
+  id INTEGER NOT NULL PRIMARY KEY
+  );`;
+
+  if _, err := db.Exec(create); err != nil {
+    log.Fatalln(err);
+  }
+
+}
+
+func get_all_ranked_beatmap_ids_of_gamemode(gm GameMode, db *sql.DB) {
   const uri = "https://osu.ppy.sh/beatmaps/packs/";
   for i := 1; true; i++ {
     var pack_url = uri + string(gm) + fmt.Sprint(i);
 
-    err := get_map_ids_from_pack_url(pack_url);
+    ids, err := get_map_ids_from_pack_url(pack_url);
     if err != nil {
       log.Fatalln(err);
       break;
+    }
+
+    for _, id := range ids {
+      insert_beatmap_id(db, id);
     }
 
     time.Sleep(4 * time.Second);
   }
 }
 
-func get_map_ids_from_pack_url(pack_url string) error {
+func get_map_ids_from_pack_url(pack_url string) ([]int, error) {
   resp, err := http.Get(pack_url);
 
   if err != nil {
-    return errors.New("Error sending get request.")
+    return nil, errors.New("Error sending get request.")
   }
 
   body, err := io.ReadAll(resp.Body)
   if err != nil {
-    return errors.New("Error reading response body.")
+    return nil, errors.New("Error reading response body.")
   }
 
   body_string := string(body);
 
   if strings.Contains(body_string, "Page Missing") {
-    return errors.New("Page not found.")
+    return nil, errors.New("Page not found.")
   }
 
   pattern := regexp.MustCompile(`https:\/\/osu\.ppy\.sh\/beatmapsets\/([^\/"]+)`);
   matches := pattern.FindAllStringSubmatch(body_string, -1);
 
+  var ids []int;
   for _, match := range matches {
-    fmt.Println("Captured segment:", match[0]);
+    id, err := strconv.Atoi(match[1])
+    if err != nil {
+      return nil, errors.New("Error converting beatmap ID to int.");
+    }
+
+    ids = append(ids, id);
   }
   
-  return nil;
+  return ids, nil;
 }
