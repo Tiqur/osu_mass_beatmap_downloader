@@ -9,6 +9,8 @@ import (
   "time"
   "errors"
   "strings"
+  _ "database/sql"
+  "os"
 )
 
 type GameMode string;
@@ -20,7 +22,18 @@ const (
 )
 
 func main() {
-  get_all_ranked_beatmap_ids_of_gamemode(standard);
+  //get_all_ranked_beatmap_ids_of_gamemode(standard);
+  init_database();
+}
+
+func init_database() {
+  if _, err := os.Stat("./data/data.db"); err != nil {
+    fmt.Println("Creating db");
+    os.Mkdir("./data", 0755);
+    os.Create("./data/data.db");
+  } else {
+    fmt.Println("db exists");
+  }
 }
 
 func get_all_ranked_beatmap_ids_of_gamemode(gm GameMode) {
