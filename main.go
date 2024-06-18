@@ -108,6 +108,7 @@ func get_all_ranked_beatmap_ids_of_gamemode(gm GameMode, db *sql.DB) {
 
     for _, id := range ids {
       insert_beatmap_id(db, id);
+      fmt.Printf("Inserted beatmap ID: %d\n", id);
     }
 
     time.Sleep(4 * time.Second);
